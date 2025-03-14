@@ -1,48 +1,47 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 1️⃣ Enable CORS (so Hostinger can access it)
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// 2️⃣ Rate Limiting (Max 5 requests per minute per IP)
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 5, // Allow only 5 requests per minute per IP
-  message: { 
-    error: "Sounds like you need more help. Why not contact Workhorse IT for expert support?"
-  }
-});
-
-app.use("/chatgpt", limiter); // Apply rate limiting to the chatbot API
-
+// ✅ Enable CORS so Hostinger can call this API
+app.use(cors());
 app.use(express.json());
 
-// 3️⃣ Define ChatGPT Route
-app.post("/chatgpt", async (req, res) => {
-  try {
-    const userMessage = req.body.userMessage;
-    if (!userMessage) {
-      return res.status(400).json({ error: "No userMessage provided" });
-    }
+// ✅ Rate Limiting: Max 5 requests per minute
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 5,
+  message: { 
+    error: "You've reached the limit. Meet Martin! Click below to get real IT help.", 
+    showArchie: true 
+  }
+});
 
+app.use("/chatgpt", limiter);
+
+// ✅ Common IT support responses (to save API calls)
+const commonResponses = {
+  "how to reset my router": "Try turning your router off for 30 seconds, then back on.",
+  "how to remove a virus": "Run a full scan with Windows Defender or your antivirus software.",
+};
+
+// ✅ ChatGPT API Route
+app.post("/chatgpt", async (req, res) => {
+  const userMessage = req.body.userMessage.toLowerCase();
+
+  // If it's a common question, return an instant answer
+  if (commonResponses[userMessage]) {
+    return res.json({ reply: commonResponses[userMessage] });
+  }
+
+  try {
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
+      return res.status(500).json({ error: "Missing OpenAI API Key" });
     }
 
-    // 4️⃣ Send request to OpenAI API
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -56,27 +55,19 @@ app.post("/chatgpt", async (req, res) => {
     });
 
     const data = await response.json();
-    console.log("OpenAI raw response:", data);
-
-    // 5️⃣ Handle OpenAI response
-    if (data.error) {
-      console.error("OpenAI Error:", data.error);
-      return res.status(500).json({ error: data.error.message || "OpenAI returned an error" });
-    }
 
     if (data.choices && data.choices[0].message) {
       return res.json({ reply: data.choices[0].message.content });
     }
 
-    // Fallback if no response
     res.status(500).json({ error: "No response from OpenAI" });
   } catch (err) {
-    console.error("Error in /chatgpt:", err);
+    console.error("Error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// 6️⃣ Start the server
+// ✅ Start the server
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
